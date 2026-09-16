@@ -7,7 +7,7 @@ export async function authClient(){
  return client;
 }
 export async function signedIn(){const c=await authClient();const {data,error}=await c.auth.getSession();if(error)throw error;return data.session;}
-export async function sendSignIn(email){const c=await authClient();const {error}=await c.auth.signInWithOtp({email,options:{emailRedirectTo:location.origin+location.pathname}});if(error)throw error;}
+export async function googleSignIn(){const c=await authClient();const {error}=await c.auth.signInWithOAuth({provider:'google',options:{redirectTo:location.origin+location.pathname}});if(error)throw error;}
 export async function signOut(){const c=await authClient();const {error}=await c.auth.signOut();if(error)throw error;}
 export async function rankedRequest(body){
  if(!configured)throw Error('Ranked play is not connected yet. Practice is available.');
