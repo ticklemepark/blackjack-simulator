@@ -1,4 +1,4 @@
-import {configured,signedIn,googleSignIn,signOut,rankedRequest} from './ranked.js';
+import {configured,signedIn,googleSignIn,signOut,rankedRequest} from './ranked.js?v=20260916-google-1';
 import {Game,total} from './engine.mjs';
 import {decisionNarrative,betNarrative} from './narrative.mjs';
 const root=document.querySelector('#app');let game=new Game(),bet=25,target=250,useTarget=true,error='',reviewTab='decisions';let busy=false,visual=null;let seats=1,seatBets=[25,25,25];let ranked=false,rankedSession=null,rankedVersion=0,rankedEligible=false;

@@ -1,4 +1,4 @@
-import {rankedConfig} from './ranked-config.js';
+import {rankedConfig} from './ranked-config.js?v=20260916-google-1';
 export const configured=Boolean(rankedConfig.url&&rankedConfig.publishableKey);
 let client;
 export async function authClient(){
