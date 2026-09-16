@@ -1,6 +1,8 @@
-import {configured,signedIn,googleSignIn,signOut,rankedRequest} from './ranked.js?v=20260916-google-1';
+import {configured,observeAuth,signedIn,googleSignIn,signOut,rankedRequest} from './ranked.js?v=20260916-auth-2';
 import {Game,total} from './engine.mjs';
 import {decisionNarrative,betNarrative} from './narrative.mjs';
+let authSession=null,authLoading=configured,authError='';
+const returningFromAuth=/[?#&](access_token|code|error|error_description)=/.test(location.hash+location.search);
 const root=document.querySelector('#app');let game=new Game(),bet=25,target=250,useTarget=true,error='',reviewTab='decisions';let busy=false,visual=null;let seats=1,seatBets=[25,25,25];let ranked=false,rankedSession=null,rankedVersion=0,rankedEligible=false;
 const roundBets=()=>seatBets.slice(0,seats);const betTotal=()=>roundBets().reduce((a,b)=>a+b,0);
 const money=n=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(n),signed=n=>(n>=0?'+':'−')+money(Math.abs(n)),pct=n=>(n*100).toFixed(1)+'%',name=a=>({hit:'Hit',stand:'Stand',double:'Double',split:'Split',surrender:'Surrender',insure:'Take insurance',decline:'Decline insurance'}[a]||a);
@@ -34,7 +36,7 @@ root.querySelector('#newSession').onclick=()=>{if(ranked){startRanked().catch(e=
 function remoteGame(state){const legal=[...(state.legal||[])];return {...state,legal:()=>legal};}
 function updateRankedBar(){
  const bar=document.querySelector('#rankedBar');if(!bar)return;if(!configured){bar.innerHTML='<span>PRACTICE · 1–3 seats · One shared bankroll</span>';return;}
- bar.innerHTML=`<span>${ranked?'RANKED · '+Math.min(30,game.rounds.length)+' / 30 rounds':'PRACTICE · 1–3 seats'}</span><div><button id="leaderboardBtn" class="quiet">Leaderboard</button><button id="rankedBtn" class="quiet" ${busy||!ranked&&!['ready','between','ended'].includes(game.phase)?'disabled':''}>${ranked?'Account & resume':'Sign in / ranked play'}</button></div>`;
+ bar.innerHTML=`<span>${ranked?'RANKED · '+Math.min(30,game.rounds.length)+' / 30 rounds':'PRACTICE · 1–3 seats'}</span><div><button id="leaderboardBtn" class="quiet">Leaderboard</button><button id="rankedBtn" class="quiet" ${authLoading||busy||!ranked&&!['ready','between','ended'].includes(game.phase)?'disabled':''}>${authLoading?'Checking sign-in…':ranked?'Account & resume':authSession?'Signed in · Ranked play':'Sign in / ranked play'}</button></div>`;
  document.querySelector('#leaderboardBtn').onclick=()=>showRanked('leaderboard');document.querySelector('#rankedBtn').onclick=()=>showRanked('account');
 }
 async function startRanked(){
@@ -53,13 +55,25 @@ async function showRanked(tab){
    const rows=document.querySelector('#scoreRows');if(!result.scores.length){const tr=rows.insertRow();const cell=tr.insertCell();cell.colSpan=4;cell.textContent='No completed ranked sessions yet.';}
    result.scores.forEach((r,i)=>{const tr=rows.insertRow();[i+1,r.player,money(Number(r.balance_cents)/100),r.max_seats].forEach(value=>{tr.insertCell().textContent=String(value);});});return;
   }
-  const session=await signedIn();
+  const session=await signedIn();authSession=session;authLoading=false;updateRankedBar();
   if(session){body.innerHTML='<h2>Ranked table</h2><p id="accountName"></p><p>Start with $1,000 across 1–3 seats. Complete 30 rounds, or play until your bankroll falls below $1. Leaving early ends the attempt without a score. Best finish per account appears publicly under a generated player name.</p><p>One active session at a time. Reopening resumes it; up to 10 new attempts per day.</p><button class="btn primary" id="startRanked">Start / resume ranked</button><button class="btn" id="signOut">Sign out</button><p id="rankedError" role="alert"></p>';document.querySelector('#accountName').textContent='Signed in as '+session.user.email;document.querySelector('#startRanked').onclick=()=>{(rankedSession&&ranked?resumeRanked():startRanked()).catch(e=>{document.querySelector('#rankedError').textContent=e.message;});};document.querySelector('#signOut').onclick=async()=>{try{await signOut();ranked=false;rankedSession=null;game=new Game();seats=1;seatBets=[25,25,25];render();showRanked('account');}catch(e){document.querySelector('#rankedError').textContent=e.message;}};
-  }else{body.innerHTML='<h2>Sign in to play ranked</h2><p>Your email stays private; leaderboard entries use a generated player name.</p><button class="btn primary" id="googleSignIn">Continue with Google</button><p id="rankedError" role="status"></p>';document.querySelector('#googleSignIn').onclick=async e=>{const button=e.currentTarget;button.disabled=true;try{await googleSignIn();}catch(err){document.querySelector('#rankedError').textContent=err.message;button.disabled=false;}};}
+  }else{body.innerHTML='<h2>Sign in to play ranked</h2><p id="authNotice" role="alert"></p><p>Your email stays private; leaderboard entries use a generated player name.</p><button class="btn primary" id="googleSignIn">Continue with Google</button><p id="rankedError" role="status"></p>';document.querySelector('#authNotice').textContent=authError;document.querySelector('#googleSignIn').onclick=async e=>{const button=e.currentTarget;button.disabled=true;try{await googleSignIn();}catch(err){document.querySelector('#rankedError').textContent=err.message;button.disabled=false;}};}
 
  }catch(e){body.textContent=e.message;}
 }
 document.querySelector('#rulesBtn').onclick=()=>document.querySelector('#rules').showModal();
 document.addEventListener('keydown',e=>{if(busy||e.repeat||e.ctrlKey||e.metaKey||e.altKey||document.querySelector('dialog[open]')||['INPUT','BUTTON','SUMMARY','A','TEXTAREA'].includes(document.activeElement?.tagName))return;const a={h:'hit',s:'stand',d:'double',p:'split',r:'surrender'}[e.key.toLowerCase()];if(a&&game.legal().includes(a)){e.preventDefault();act(a);}else if(e.code==='Space'&&['ready','between'].includes(game.phase)){e.preventDefault();deal();}});
 render();
+async function initializeAuth(){
+ if(!configured)return;
+ try{
+  const unsubscribe=await observeAuth(session=>{authSession=session;authLoading=false;authError='';updateRankedBar();});
+  window.addEventListener('pagehide',unsubscribe,{once:true});
+  if(returningFromAuth){
+   if(!authSession)authError='Google sign-in did not complete. Please try again.';
+   await showRanked('account');
+  }
+ }catch(e){authLoading=false;authError='Unable to complete sign-in: '+e.message;updateRankedBar();const body=document.querySelector('#rankedBody');body.textContent=authError;const dialog=document.querySelector('#rankedDialog');if(!dialog.open)dialog.showModal();}
+}
+void initializeAuth();
 const context=document.modelContext;if(context?.registerTool){const lifecycle=new AbortController();const add=tool=>{try{Promise.resolve(context.registerTool(tool,{signal:lifecycle.signal})).catch(()=>{});}catch{}};add({name:'read_blackjack_table',description:'Read the visible blackjack state, excluding the hidden dealer card.',inputSchema:{type:'object',properties:{},additionalProperties:false},annotations:{readOnlyHint:true},execute:()=>{const state=visual||game;return {phase:busy?'animating':state.phase,bankroll:state.bank,hands:state.hands,dealer:['dealing','playing','insurance'].includes(state.phase)?state.dealer.map((c,i)=>i===1?{hidden:true}:c):state.dealer,legal:busy?[]:state.legal(),rounds:state.rounds.length};}});add({name:'play_blackjack_action',description:'Deal a round with a specified wager, play a legal action, or cash out between rounds to display the review.',inputSchema:{type:'object',properties:{action:{type:'string',enum:['deal','hit','stand','double','split','surrender','insure','decline','cashout']},bet:{oneOf:[{type:'number'},{type:'array',items:{type:'number'},minItems:1,maxItems:3}]}},required:['action'],additionalProperties:false},annotations:{readOnlyHint:false},execute:async input=>{if(!input||typeof input!=='object'||!['deal','hit','stand','double','split','surrender','insure','decline','cashout'].includes(input.action))throw Error('Invalid action');return await runMove(input.action,input.bet);}});window.addEventListener('pagehide',()=>lifecycle.abort(),{once:true});}
